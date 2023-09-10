@@ -3,9 +3,7 @@
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-# to be removed
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/frontends/b)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/frontends/b)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/frontends/clang)
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${LIBELF_INCLUDE_DIRS})
@@ -46,8 +44,6 @@ endif()
 
 string(REGEX MATCH "^([0-9]+).*" _ ${LLVM_PACKAGE_VERSION})
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DLLVM_MAJOR_VERSION=${CMAKE_MATCH_1}")
-
-include(static_libstdc++)
 
 if(LIBBPF_INCLUDE_DIR)
   # Add user libbpf include and notify compilation
@@ -91,11 +87,13 @@ if(LIBBPF_FOUND)
 endif()
 
 if(ENABLE_CLANG_JIT)
-add_library(bcc-shared SHARED
-  link_all.cc ${bcc_common_sources} ${bcc_table_sources} ${bcc_sym_sources}
-  ${bcc_util_sources})
-set_target_properties(bcc-shared PROPERTIES VERSION ${REVISION_LAST} SOVERSION 0)
-set_target_properties(bcc-shared PROPERTIES OUTPUT_NAME bcc)
+  if(ENABLE_SHARED)
+    add_library(bcc-shared SHARED
+      link_all.cc ${bcc_common_sources} ${bcc_table_sources} ${bcc_sym_sources}
+      ${bcc_util_sources})
+    set_target_properties(bcc-shared PROPERTIES VERSION ${REVISION_LAST} SOVERSION 0)
+    set_target_properties(bcc-shared PROPERTIES OUTPUT_NAME bcc)
+  endif(ENABLE_SHARED)
 
 if(ENABLE_USDT)
   add_definitions(-DEXPORT_USDT)
@@ -115,6 +113,7 @@ set(bpf_sources libbpf.c perf_reader.c ${libbpf_sources} ${bcc_sym_sources} ${bc
 add_library(bpf-static STATIC ${bpf_sources})
 set_target_properties(bpf-static PROPERTIES OUTPUT_NAME bcc_bpf)
 target_link_libraries(bpf-static elf z)
+if(ENABLE_SHARED)
 add_library(bpf-shared SHARED ${bpf_sources})
 set_target_properties(bpf-shared PROPERTIES VERSION ${REVISION_LAST} SOVERSION 0)
 set_target_properties(bpf-shared PROPERTIES OUTPUT_NAME bcc_bpf)
@@ -128,6 +127,7 @@ endif(LIBDEBUGINFOD_FOUND)
 if(CMAKE_USE_LIBBPF_PACKAGE AND LIBBPF_FOUND)
   target_link_libraries(bpf-shared ${LIBBPF_LIBRARIES})
 endif()
+endif(ENABLE_SHARED)
 
 include(clang_libs)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${clang_lib_exclude_flags}")
@@ -178,15 +178,26 @@ add_subdirectory(frontends)
 target_sources(bcc-static PRIVATE $<TARGET_OBJECTS:clang_frontend-objects>)
 
 # Link against LLVM libraries
-target_link_libraries(bcc-shared ${bcc_common_libs_for_s})
+if(ENABLE_SHARED)
+  target_link_libraries(bcc-shared ${bcc_common_libs_for_s})
+endif(ENABLE_SHARED)
+
 target_link_libraries(bcc-static ${bcc_common_libs_for_a} bcc-loader-static)
 set(bcc-lua-static ${bcc-lua-static} ${bcc_common_libs_for_lua})
 
-install(TARGETS bcc-shared bcc-static bcc-loader-static bpf-static LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS bcc-static bcc-loader-static bpf-static LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES ${bcc_table_headers} DESTINATION include/bcc)
 install(FILES ${bcc_api_headers} DESTINATION include/bcc)
 install(DIRECTORY ${libbpf_uapi} DESTINATION include/bcc/compat/linux FILES_MATCHING PATTERN "*.h")
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libbcc.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+if(ENABLE_SHARED)
+  install(TARGETS bcc-shared LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif(ENABLE_SHARED)
+
 endif(ENABLE_CLANG_JIT)
 install(FILES ${bcc_common_headers} DESTINATION include/bcc)
-install(TARGETS bpf-shared LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+if(ENABLE_SHARED)
+  install(TARGETS bpf-shared LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif(ENABLE_SHARED)
+
